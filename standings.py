@@ -145,10 +145,10 @@ def show_standings(worksheet_name, title):
                 points = df.iloc[i]['Punti'] 
                 # se tesserato, assegna posizione
                 if df.iloc[i]['IsTesserato']:
-                    df.at[df.index[i], 'Pos'] = f"{pos} 🏆" if pos == 1 else f"{pos}"
                     if old_points is not None and points != old_points: # incrementa pos solo se i punti sono diversi
                         pos += 1
                     old_points = points
+                    df.at[df.index[i], 'Pos'] = f"{pos} 🏆" if pos == 1 else f"{pos}"
                 else:
                     # N.C., i.e., Non Classificato
                     df.at[df.index[i], 'Pos'] = 'N.C.'
