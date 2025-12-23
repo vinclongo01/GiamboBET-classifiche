@@ -52,8 +52,14 @@ if id_scansionato:
     # Cerchiamo l'ID nel dizionario
     nome_utente_scansionato = id2NomeCognome.get(id_scansionato)
     
+    
     if nome_utente_scansionato:
-        st.success(f"👋 Ciao **{nome_utente_scansionato}**! I tuoi risultati sono evidenziati in ORO.")
+        is_user_tesserato = dict_tesserati.get(nome_utente_scansionato, False)
+        if is_user_tesserato:
+            st.success(f"👋 Ciao **{nome_utente_scansionato}**! I tuoi risultati sono evidenziati in ORO.")
+        else:
+            st.warning(f"👋 Ciao **{nome_utente_scansionato}**! Sei **NON TESSERATO**. I tuoi risultati sono evidenziati in ORO, ma non potrai essere classificato.")
+            st.info("Per essere TESSERATO, invia 5€ sul conto paypal clubjuporn@gmail.com.")
     else:
         st.warning(f"ID {id_scansionato} non trovato nel sistema.")
 
