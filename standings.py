@@ -107,7 +107,8 @@ with st.expander("👥 Clicca qui per vedere tutti i Membri Tesserati"):
             width="stretch",
             column_config={
                 "IsTesserato": None, # Nasconde la colonna
-                "Tesserato": None    # Nasconde la colonna
+                "Tesserato": None,    # Nasconde la colonna
+                "ID": None          # Nasconde la colonna
             }
         )
     else:
