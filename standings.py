@@ -5,46 +5,87 @@ from streamlit_gsheets import GSheetsConnection
 # Title
 st.set_page_config(page_title="Classifiche GiamboBET", layout="centered")
 
-
+# Set Logo
 st.logo(
     "./logo/jp.png", 
     #link="https://www.google.com", # redirect link (opzionale)
     size="large" # Opzionale
 )
 
+# Title
 st.title("🏆 Classifiche GiamboBET")
 
+# Connessione a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # Membri
 try:
-    df_membri = conn.read(worksheet="Membri", ttl=0) # ttl=0 per avere dati sempre freschi
+    # Leggiamo i Membri del Gruppo
+    df_membri = conn.read(worksheet="Membri", ttl="10m") # cache per 10 minuti
     
     # Dizionario: Nome Cognome -> Tesserato (True/False)
-    dict_membri = {}
+    dict_tesserati = {}
     for index, row in df_membri.iterrows():
         nome_completo = f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
         is_tesserato = str(row['Tesserato']).strip().upper() == "SI"
-        dict_membri[nome_completo] = is_tesserato
+        dict_tesserati[nome_completo] = is_tesserato
+
+    # id2NomeCognome
+    id2NomeCognome = {}
+    for index, row in df_membri.iterrows():
+        id2NomeCognome[row['ID']] = f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
+    
+    # NomeCognome2id
+    NomeCognome2id = {id2NomeCognome[k]: k for k in id2NomeCognome}
 
 except Exception as e:
     st.error(f"Errore nella lettura del foglio Membri: {e}")
     st.stop()
 
+
+# Link accetta il parametro uid nell'URL
+query_params = st.query_params
+id_scansionato = query_params.get("uid", None)
+nome_utente_scansionato = None
+
+if id_scansionato:
+    # Cerchiamo l'ID nel dizionario
+    nome_utente_scansionato = id2NomeCognome.get(id_scansionato)
+    
+    if nome_utente_scansionato:
+        st.success(f"👋 Ciao **{nome_utente_scansionato}**! I tuoi risultati sono evidenziati in ORO.")
+    else:
+        st.warning(f"ID {id_scansionato} non trovato nel sistema.")
+
+
 # Funzione per applicare lo stile (Verde/Rosso)
 def color_rows(row):
-    # Se è tesserato VERDE, altrimenti ROSSO chiaro
-    color = '#d4edda' if row['IsTesserato'] else '#f8d7da' 
-    # Applica il colore a tutte le celle della riga
-    return [f'background-color: {color}; color: black'] * len(row)
+    nome_riga = f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
+    
+    # Verifica se la riga corrente corrisponde all'utente scansionato
+    is_selected = False
+    if nome_utente_scansionato and nome_riga.lower() == nome_utente_scansionato.lower():
+        is_selected = True
 
-# LISTA COMPLETA MEMBRI TESSERATI
+    if is_selected:
+        # ORO per l'utente del QR
+        return ['background-color: #FFD700; color: black; font-weight: bold; border: 2px solid red'] * len(row)
+    
+    # Controllo Tesserato usando il dizionario
+    elif dict_tesserati.get(nome_riga, False): 
+        # VERDE
+        return ['background-color: #d4edda; color: black'] * len(row)
+    else:
+        # ROSSO
+        return ['background-color: #f8d7da; color: black'] * len(row)
+
+# 1. Visualizza lista Membri Tesserati
 with st.expander("👥 Clicca qui per vedere tutti i Membri Tesserati"):
     if not df_membri.empty:
         # 1. Creiamo una copia per lavorare
         df_view_membri = df_membri.copy()
 
-        # 2. Filtra i membri: AGGIUNTO .copy() QUI SOTTO PER RISOLVERE IL WARNING
+        # 2. Filtra i membri
         df_tesserati = df_view_membri[
             df_view_membri['Tesserato'].astype(str).str.strip().str.upper() == "SI"
         ].sort_values(by=['Cognome', 'Nome']).reset_index(drop=True).copy()
@@ -78,13 +119,11 @@ def show_standings(worksheet_name, title):
             st.warning("Nessun dato trovato.")
             return
 
-    
-
 
         # Check Tesserato status
         def check_tesserato(row):
             nome_completo = f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
-            return dict_membri.get(nome_completo, False)
+            return dict_tesserati.get(nome_completo, False)
 
 
         df['IsTesserato'] = df.apply(check_tesserato, axis=1)
@@ -108,10 +147,11 @@ def show_standings(worksheet_name, title):
         
         df = compute_pos(df)
 
-        # 3. Style
+        # Style
         styled_df = df.style.apply(color_rows, axis=1)
 
-        # 4. Formattazione finale per Streamlit
+        # Formattazione finale per Streamlit
+
         # Nascondiamo l'indice fastidioso e la colonna 'IsTesserato' che serve solo per il colore
         st.dataframe(
             styled_df,
@@ -126,7 +166,7 @@ def show_standings(worksheet_name, title):
     except Exception as e:
         st.error(f"Errore nel caricamento di {title}: {e}")
 
-# --- VISUALIZZAZIONE CLASSIFICHE ---
+# 2. Mostra le classifiche
 
 show_standings("Serie A", "🇮🇹 Classifica Serie A")
 st.markdown("---") # Separatore
