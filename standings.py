@@ -183,7 +183,7 @@ try:
     df_girone_andata = conn.read(worksheet="Classifica Girone di Andata", ttl="10m")
 
     # Classifica Girone di Ritorno
-    df_girone_ritorno = conn.read(worksheet="Classifica Girone di Ritorno", ttl="0m")
+    df_girone_ritorno = conn.read(worksheet="Classifica Girone di Ritorno", ttl="10m")
 
     # Classifica Champions League
     df_champions = conn.read(worksheet="Champions League", ttl="10m")
@@ -222,8 +222,6 @@ st.subheader("Classifiche Serie A:")
 
 # Crea 3 pulsanti per le classifiche
 col1, col2, col3 = st.columns(3)
-
-
 
 with col1:
     if st.button("📥 Andata", use_container_width=True, 
