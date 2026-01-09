@@ -108,7 +108,8 @@ with st.expander("👥 Clicca qui per vedere tutti i Membri Tesserati"):
             column_config={
                 "IsTesserato": None, # Nasconde la colonna
                 "Tesserato": None,    # Nasconde la colonna
-                "ID": None          # Nasconde la colonna
+                "ID": None,        # Nasconde la colonna
+                "Tipo di tessera": None # Nasconde la colonna
             }
         )
     else:
@@ -117,15 +118,13 @@ with st.expander("👥 Clicca qui per vedere tutti i Membri Tesserati"):
 st.markdown("---")
 
 # Funzione helper per caricare e mostrare le classifiche
-def show_standings(worksheet_name, title):
+def show_standings(df, title):
     st.subheader(title)
     try:
-        df = conn.read(worksheet=worksheet_name, ttl=0)
-        
+
         if df.empty:
             st.warning("Nessun dato trovato.")
             return
-
 
         # Check Tesserato status
         def check_tesserato(row):
@@ -177,11 +176,79 @@ def show_standings(worksheet_name, title):
     except Exception as e:
         st.error(f"Errore nel caricamento di {title}: {e}")
 
-# 2. Mostra le classifiche
 
-show_standings("Serie A", "🇮🇹 Classifica Serie A")
+# 2. Leggi tutte le classifiche da Google Sheets
+try:
+    # Classifica Girone di Andata
+    df_girone_andata = conn.read(worksheet="Classifica Girone di Andata", ttl="10m")
+
+    # Classifica Girone di Ritorno
+    df_girone_ritorno = conn.read(worksheet="Classifica Girone di Ritorno", ttl="0m")
+
+    # Classifica Champions League
+    df_champions = conn.read(worksheet="Champions League", ttl="10m")
+
+except Exception as e:
+    st.error(f"Errore nella lettura delle classifiche: {e}")
+    st.stop()
+
+def compute_general_standings(df1, df2):
+    # Unisci le due classifiche sommando i punti
+    df_general = pd.merge(
+        df1[['Nome', 'Cognome', 'Punti']],
+        df2[['Nome', 'Cognome', 'Punti']],
+        on=['Nome', 'Cognome'],
+        how='outer',
+        suffixes=('_andata', '_ritorno')
+    ).fillna(0)
+
+    # Somma i punti
+    df_general['Punti'] = df_general['Punti_andata'] + df_general['Punti_ritorno']
+
+    # Rimuovi le colonne temporanee
+    df_general = df_general[['Nome', 'Cognome', 'Punti']]
+
+    return df_general
+
+df_general = compute_general_standings(df_girone_andata, df_girone_ritorno)
+
+# 3. Mostra le classifiche
+
+# Inizializza lo stato della sessione per tracciare quale classifica mostrare
+if "classifica_scelta" not in st.session_state:
+    st.session_state.classifica_scelta = "generale"
+
+st.subheader("Classifiche Serie A:")
+
+# Crea 3 pulsanti per le classifiche
+col1, col2, col3 = st.columns(3)
+
+
+
+with col1:
+    if st.button("📥 Andata", use_container_width=True, 
+                 key="btn_andata"):
+        st.session_state.classifica_scelta = "andata"
+
+with col2:
+    if st.button("📤 Ritorno", use_container_width=True,
+                 key="btn_ritorno"):
+        st.session_state.classifica_scelta = "ritorno"
+
+with col3:
+    if st.button("🏅 Generale", use_container_width=True,
+                 key="btn_generale"):
+        st.session_state.classifica_scelta = "generale"
+
+
+# Mostra la classifica selezionata
+if st.session_state.classifica_scelta == "andata":
+    show_standings(df_girone_andata, "🇮🇹 Classifica Girone di Andata Serie A")
+elif st.session_state.classifica_scelta == "ritorno":
+    show_standings(df_girone_ritorno, "🇮🇹 Classifica Girone di Ritorno Serie A")
+else:  # generale
+    show_standings(df_general, "🇮🇹 Classifica Generale Serie A")
 st.markdown("---") # Separatore
-show_standings("Champions League", "🇪🇺 Classifica Champions League")
-
+show_standings(df_champions, "🇪🇺 Classifica Champions League")
 # Legenda
 st.caption("Legenda: 🟩 Tesserato | 🟥 Non Tesserato")
