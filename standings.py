@@ -2,60 +2,39 @@ import streamlit as st
 import pandas as pd
 from streamlit_gsheets import GSheetsConnection
 
-# Title
 st.set_page_config(page_title="Classifiche GiamboBET", layout="centered")
-
-# Set Logo
-st.logo(
-    "./logo/jp.png", 
-    #link="https://www.google.com", # redirect link (opzionale)
-    size="large" # Opzionale
-)
-
-# Title
+st.logo("./logo/jp.png", size="large")
 st.title("🏆 Classifiche GiamboBET")
 
-# Connessione a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Membri
-try:
-    # Leggiamo i Membri del Gruppo
-    df_membri = conn.read(worksheet="Membri", ttl="10m") # cache per 10 minuti
-    
-    # Dizionario: Nome Cognome -> Tesserato (True/False)
-    dict_tesserati = {}
-    for index, row in df_membri.iterrows():
-        nome_completo = f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
-        is_tesserato = str(row['Tesserato']).strip().upper() == "SI"
-        dict_tesserati[nome_completo] = is_tesserato
 
-    # id2NomeCognome
+def get_full_name(row):
+    return f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
+
+
+try:
+    df_membri = conn.read(worksheet="Membri", ttl="10m")
+
+    dict_tesserati = {}
     id2NomeCognome = {}
-    for index, row in df_membri.iterrows():
-        id2NomeCognome[row['ID']] = f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
-    
-    # NomeCognome2id
-    NomeCognome2id = {id2NomeCognome[k]: k for k in id2NomeCognome}
+    for _, row in df_membri.iterrows():
+        nome_completo = get_full_name(row)
+        dict_tesserati[nome_completo] = str(row['Tesserato']).strip().upper() == "SI"
+        id2NomeCognome[row['ID']] = nome_completo
 
 except Exception as e:
     st.error(f"Errore nella lettura del foglio Membri: {e}")
     st.stop()
 
 
-# Link accetta il parametro uid nell'URL
-query_params = st.query_params
-id_scansionato = query_params.get("uid", None)
+id_scansionato = st.query_params.get("uid", None)
 nome_utente_scansionato = None
 
 if id_scansionato:
-    # Cerchiamo l'ID nel dizionario
     nome_utente_scansionato = id2NomeCognome.get(id_scansionato)
-    
-    
     if nome_utente_scansionato:
-        is_user_tesserato = dict_tesserati.get(nome_utente_scansionato, False)
-        if is_user_tesserato:
+        if dict_tesserati.get(nome_utente_scansionato, False):
             st.success(f"👋 Ciao **{nome_utente_scansionato}**! I tuoi risultati sono evidenziati in ORO.")
         else:
             st.warning(f"👋 Ciao **{nome_utente_scansionato}**! Sei **NON TESSERATO**. I tuoi risultati sono evidenziati in ORO, ma non potrai essere classificato.")
@@ -64,52 +43,54 @@ if id_scansionato:
         st.warning(f"ID {id_scansionato} non trovato nel sistema.")
 
 
-# Funzione per applicare lo stile (Verde/Rosso)
 def color_rows(row):
-    nome_riga = f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
-    
-    # Verifica se la riga corrente corrisponde all'utente scansionato
-    is_selected = False
+    nome_riga = get_full_name(row)
     if nome_utente_scansionato and nome_riga.lower() == nome_utente_scansionato.lower():
-        is_selected = True
-
-    if is_selected:
-        # ORO per l'utente del QR
         return ['background-color: #FFD700; color: black; font-weight: bold; border: 2px solid red'] * len(row)
-    
-    # Controllo Tesserato usando il dizionario
-    elif dict_tesserati.get(nome_riga, False): 
-        # VERDE
+    elif dict_tesserati.get(nome_riga, False):
         return ['background-color: #d4edda; color: black'] * len(row)
     else:
-        # ROSSO
         return ['background-color: #f8d7da; color: black'] * len(row)
 
-# 1. Visualizza lista Membri Tesserati
+
+def add_tesserato_column(df):
+    df = df.copy()
+    df['IsTesserato'] = df.apply(get_full_name, axis=1).map(lambda n: dict_tesserati.get(n, False))
+    return df
+
+
+def compute_pos(df):
+    df = df.sort_values(by=['Punti'], ascending=False).copy()
+    df.insert(0, 'Pos', "")
+    pos = 1
+    old_points = None
+    for i in range(len(df)):
+        if df.iloc[i]['IsTesserato']:
+            points = df.iloc[i]['Punti']
+            if old_points is not None and points != old_points:
+                pos += 1
+            old_points = points
+            df.at[df.index[i], 'Pos'] = f"{pos} 🏆" if pos == 1 else f"{pos}"
+        else:
+            df.at[df.index[i], 'Pos'] = 'N.C.'
+    return df
+
+
 with st.expander("👥 Clicca qui per vedere tutti i Membri Tesserati"):
     if not df_membri.empty:
-        # 1. Creiamo una copia per lavorare
-        df_view_membri = df_membri.copy()
-
-        # 2. Filtra i membri
-        df_tesserati = df_view_membri[
-            df_view_membri['Tesserato'].astype(str).str.strip().str.upper() == "SI"
-        ].sort_values(by=['Cognome', 'Nome']).reset_index(drop=True).copy()
-        
-        # 3. Ora puoi modificare df_tesserati senza errori
-        # Dato che abbiamo già filtrato solo i "SI", questa colonna sarà tutta True
-        df_tesserati['IsTesserato'] = True 
-        
-        # 4. Applichiamo lo stile
+        df_tesserati = df_membri[
+            df_membri['Tesserato'].astype(str).str.strip().str.upper() == "SI"
+        ].sort_values(by=['Cognome', 'Nome']).reset_index(drop=True)
+        df_tesserati = add_tesserato_column(df_tesserati)
         st.dataframe(
             df_tesserati.style.apply(color_rows, axis=1),
             hide_index=True,
             width="stretch",
             column_config={
-                "IsTesserato": None, # Nasconde la colonna
-                "Tesserato": None,    # Nasconde la colonna
-                "ID": None,        # Nasconde la colonna
-                "Tipo di tessera": None # Nasconde la colonna
+                "IsTesserato": None,
+                "Tesserato": None,
+                "ID": None,
+                "Tipo di tessera": None
             }
         )
     else:
@@ -117,59 +98,23 @@ with st.expander("👥 Clicca qui per vedere tutti i Membri Tesserati"):
 
 st.markdown("---")
 
-# Funzione helper per caricare e mostrare le classifiche
+
 def show_standings(df, title):
     st.subheader(title)
     try:
-
         if df.empty:
             st.warning("Nessun dato trovato.")
             return
 
-        # Check Tesserato status
-        def check_tesserato(row):
-            nome_completo = f"{str(row['Nome']).strip()} {str(row['Cognome']).strip()}"
-            return dict_tesserati.get(nome_completo, False)
-
-
-        df['IsTesserato'] = df.apply(check_tesserato, axis=1)
-
-
-        def compute_pos(df):
-            df = df.sort_values(by=['Punti'], ascending=[False])
-            df.insert(0, 'Pos', "")
-            pos = 1
-            old_points = None
-            for i in range(len(df)):
-                points = df.iloc[i]['Punti'] 
-                # se tesserato, assegna posizione
-                if df.iloc[i]['IsTesserato']:
-                    if old_points is not None and points != old_points: # incrementa pos solo se i punti sono diversi
-                        pos += 1
-                    old_points = points
-                    df.at[df.index[i], 'Pos'] = f"{pos} 🏆" if pos == 1 else f"{pos}"
-                else:
-                    # N.C., i.e., Non Classificato
-                    df.at[df.index[i], 'Pos'] = 'N.C.'
-                
-            
-            return df
-        
+        df = add_tesserato_column(df)
         df = compute_pos(df)
 
-        # Style
-        styled_df = df.style.apply(color_rows, axis=1)
-
-        # Formattazione finale per Streamlit
-
-        # Nascondiamo l'indice fastidioso e la colonna 'IsTesserato' che serve solo per il colore
         st.dataframe(
-            styled_df,
+            df.style.apply(color_rows, axis=1),
             hide_index=True,
             width="stretch",
             column_config={
-                "IsTesserato": None, # Nasconde la colonna
-                #"Pos": st.column_config.NumberColumn("Pos", format="%d"),
+                "IsTesserato": None,
                 "Punti": st.column_config.NumberColumn("Punti", format="%d")
             }
         )
@@ -177,23 +122,16 @@ def show_standings(df, title):
         st.error(f"Errore nel caricamento di {title}: {e}")
 
 
-# 2. Leggi tutte le classifiche da Google Sheets
 try:
-    # Classifica Girone di Andata
     df_girone_andata = conn.read(worksheet="Classifica Girone di Andata", ttl="10m")
-
-    # Classifica Girone di Ritorno
     df_girone_ritorno = conn.read(worksheet="Classifica Girone di Ritorno", ttl="10m")
-
-    # Classifica Champions League
     df_champions = conn.read(worksheet="Champions League", ttl="10m")
-
 except Exception as e:
     st.error(f"Errore nella lettura delle classifiche: {e}")
     st.stop()
 
+
 def compute_general_standings(df1, df2):
-    # Unisci le due classifiche sommando i punti
     df_general = pd.merge(
         df1[['Nome', 'Cognome', 'Punti']],
         df2[['Nome', 'Cognome', 'Punti']],
@@ -201,52 +139,35 @@ def compute_general_standings(df1, df2):
         how='outer',
         suffixes=('_andata', '_ritorno')
     ).fillna(0)
-
-    # Somma i punti
     df_general['Punti'] = df_general['Punti_andata'] + df_general['Punti_ritorno']
+    return df_general[['Nome', 'Cognome', 'Punti']]
 
-    # Rimuovi le colonne temporanee
-    df_general = df_general[['Nome', 'Cognome', 'Punti']]
-
-    return df_general
 
 df_general = compute_general_standings(df_girone_andata, df_girone_ritorno)
 
-# 3. Mostra le classifiche
-
-# Inizializza lo stato della sessione per tracciare quale classifica mostrare
 if "classifica_scelta" not in st.session_state:
     st.session_state.classifica_scelta = "generale"
 
 st.subheader("Classifiche Serie A:")
 
-# Crea 3 pulsanti per le classifiche
 col1, col2, col3 = st.columns(3)
-
 with col1:
-    if st.button("📥 Andata", use_container_width=True, 
-                 key="btn_andata"):
+    if st.button("📥 Andata", use_container_width=True, key="btn_andata"):
         st.session_state.classifica_scelta = "andata"
-
 with col2:
-    if st.button("📤 Ritorno", use_container_width=True,
-                 key="btn_ritorno"):
+    if st.button("📤 Ritorno", use_container_width=True, key="btn_ritorno"):
         st.session_state.classifica_scelta = "ritorno"
-
 with col3:
-    if st.button("🏅 Generale", use_container_width=True,
-                 key="btn_generale"):
+    if st.button("🏅 Generale", use_container_width=True, key="btn_generale"):
         st.session_state.classifica_scelta = "generale"
 
-
-# Mostra la classifica selezionata
 if st.session_state.classifica_scelta == "andata":
     show_standings(df_girone_andata, "🇮🇹 Classifica Girone di Andata Serie A")
 elif st.session_state.classifica_scelta == "ritorno":
     show_standings(df_girone_ritorno, "🇮🇹 Classifica Girone di Ritorno Serie A")
-else:  # generale
+else:
     show_standings(df_general, "🇮🇹 Classifica Generale Serie A")
-st.markdown("---") # Separatore
+
+st.markdown("---")
 show_standings(df_champions, "🇪🇺 Classifica Champions League")
-# Legenda
 st.caption("Legenda: 🟩 Tesserato | 🟥 Non Tesserato")
